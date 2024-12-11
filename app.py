@@ -1,100 +1,204 @@
 import streamlit as st
-from dotenv import load_dotenv
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings, HuggingFaceInstructEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
-from htmlTemplates import css, bot_template, user_template
-from langchain.llms import HuggingFaceHub
+from langchain_community.vectorstores import FAISS
+from sentence_transformers import SentenceTransformer
+from concurrent.futures import ThreadPoolExecutor
+import torch
+import numpy as np
+import os
+from htmltemplates import css, user_template, bot_template
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-def get_pdf_text(pdf_docs):
-    text = ""
-    for pdf in pdf_docs:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-    return text
+class SentenceTransformerEmbedding:
+    def __init__(self, model_name):
+        self.model = SentenceTransformer(model_name)
+
+    def embed_documents(self, texts):
+        return self.model.encode(texts, show_progress_bar=True).tolist()
 
 
-def get_text_chunks(text):
-    text_splitter = CharacterTextSplitter(
-        separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len
-    )
-    chunks = text_splitter.split_text(text)
-    return chunks
+class PDFChatAssistant:
+    def __init__(self):
+        st.set_page_config(
+            page_title="MultiPDF - ChatBot: Empowering PDF Conversations",
+            page_icon="📄",
+            layout="wide",
+        )
 
+    def load_models(self):
+        """Load open-source models."""
+        models_to_try = [
+            {
+                "name": "facebook/opt-350m",
+                "model_class": AutoModelForCausalLM,
+                "tokenizer_class": AutoTokenizer,
+            },
+            {
+                "name": "distilgpt2",
+                "model_class": AutoModelForCausalLM,
+                "tokenizer_class": AutoTokenizer,
+            },
+        ]
 
-def get_vectorstore(text_chunks):
-    # embeddings = OpenAIEmbeddings()
-    embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl")
-    vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
-    return vectorstore
+        loaded_models = []
+        for model_config in models_to_try:
+            try:
+                model_name = model_config["name"]
+                model = model_config["model_class"].from_pretrained(
+                    model_name,
+                    device_map="auto",
+                    torch_dtype=torch.float16,
+                    pad_token_id=50256,
+                )
+                tokenizer = model_config["tokenizer_class"].from_pretrained(model_name)
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                model.config.pad_token_id = tokenizer.pad_token_id
 
+                loaded_models.append(
+                    {"name": model_name, "model": model, "tokenizer": tokenizer}
+                )
+                st.success(f"Successfully loaded {model_name}")
+            except Exception as e:
+                st.warning(f"Failed to load {model_name}: {e}")
 
-def get_conversation_chain(vectorstore):
-    llm = ChatOpenAI()
-    # llm = HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature":0.5, "max_length":512})
+        return loaded_models
 
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    conversation_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm, retriever=vectorstore.as_retriever(), memory=memory
-    )
-    return conversation_chain
+    def process_pdf(self, pdf):
+        """Extract text from PDF."""
+        try:
+            pdf_reader = PdfReader(pdf)
+            text = ""
+            for page in pdf_reader.pages:
+                text += page.extract_text() or ""
+            return text
+        except Exception as e:
+            st.warning(f"Error processing PDF: {e}")
+            return ""
 
+    def get_pdf_text(self, pdf_docs):
+        """Extract text from multiple PDFs in parallel."""
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(self.process_pdf, pdf_docs))
+        return "".join(results)
 
-def handle_userinput(user_question):
-    response = st.session_state.conversation({"question": user_question})
-    st.session_state.chat_history = response["chat_history"]
+    def get_text_chunks(self, text, chunk_size=500, chunk_overlap=100):
+        """Split text into manageable chunks."""
+        text_splitter = CharacterTextSplitter(
+            separator="\n",
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+        )
+        return text_splitter.split_text(text)
 
-    for i, message in enumerate(st.session_state.chat_history):
-        if i % 2 == 0:
-            st.write(
-                user_template.replace("{{MSG}}", message.content),
-                unsafe_allow_html=True,
+    def get_vectorstore(self, text_chunks):
+        """Create a FAISS vector store from text chunks using a SentenceTransformer wrapper."""
+        embedding_model = SentenceTransformerEmbedding(
+            "all-MiniLM-L6-v2"
+        )  # Create an embedding model instance
+
+        # Create the FAISS vector store
+        vectorstore = FAISS.from_texts(
+            text_chunks, embedding=embedding_model  # Pass the wrapper instance
+        )
+        return vectorstore
+
+    def generate_response(self, question, context, model, tokenizer):
+        """Generate response using the selected model."""
+        try:
+            input_text = f"Context: {context}\n\nQuestion: {question}\nAnswer:"
+            inputs = tokenizer(
+                input_text,
+                return_tensors="pt",
+                max_length=512,
+                truncation=True,
+                padding=True,
+            ).to(model.device)
+
+            outputs = model.generate(
+                inputs.input_ids,
+                attention_mask=inputs.attention_mask,
+                max_new_tokens=100,
+                num_return_sequences=1,
+                no_repeat_ngram_size=2,
+                do_sample=True,
+                top_k=50,
+                top_p=0.95,
+                temperature=0.7,
             )
-        else:
-            st.write(
-                bot_template.replace("{{MSG}}", message.content), unsafe_allow_html=True
+
+            response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            return response.split("Answer:")[-1].strip()
+        except Exception as e:
+            st.error(f"Response generation error: {e}")
+            return "Sorry, I couldn't generate a response."
+
+    def run(self):
+        """Main Streamlit application."""
+        st.title("📄 MultiPDF - ChatBot: Empowering PDF Conversations")
+        st.markdown(css, unsafe_allow_html=True)
+
+        # Add components to the sidebar
+        st.sidebar.title("Options")
+        st.sidebar.markdown("Select models and upload PDFs")
+
+        models = self.load_models()
+        if not models:
+            st.error("No models could be loaded. Please check your setup.")
+            return
+
+        pdf_docs = st.sidebar.file_uploader(
+            "Upload PDF files", type=["pdf"], accept_multiple_files=True
+        )
+
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+
+        if pdf_docs:
+            with st.spinner("Processing PDFs..."):
+                raw_text = self.get_pdf_text(pdf_docs)
+                text_chunks = self.get_text_chunks(raw_text)
+                vectorstore = self.get_vectorstore(text_chunks)
+
+                if vectorstore:
+                    st.success(
+                        f"Processed {len(text_chunks)} text chunks from {len(pdf_docs)} PDFs."
+                    )
+
+        user_question = st.text_input("Ask a question about your documents:")
+
+        selected_model = st.sidebar.selectbox(
+            "Choose Model", [model["name"] for model in models]
+        )
+        current_model = next(
+            (m for m in models if m["name"] == selected_model), models[0]
+        )
+
+        if user_question:
+            response = self.generate_response(
+                user_question,
+                raw_text,
+                current_model["model"],
+                current_model["tokenizer"],
             )
+            st.session_state.chat_history.append(("user", user_question))
+            st.session_state.chat_history.append(("bot", response))
+
+        for sender, message in st.session_state.chat_history:
+            if sender == "user":
+                st.markdown(user_template.format(message), unsafe_allow_html=True)
+            else:
+                st.markdown(bot_template.format(message), unsafe_allow_html=True)
 
 
 def main():
-    load_dotenv()
-    st.set_page_config(page_title="Chat with multiple PDFs", page_icon=":books:")
-    st.write(css, unsafe_allow_html=True)
-
-    if "conversation" not in st.session_state:
-        st.session_state.conversation = None
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = None
-
-    st.header("Chat with multiple PDFs :books:")
-    user_question = st.text_input("Ask a question about your documents:")
-    if user_question:
-        handle_userinput(user_question)
-
-    with st.sidebar:
-        st.subheader("Your documents")
-        pdf_docs = st.file_uploader(
-            "Upload your PDFs here and click on 'Process'", accept_multiple_files=True
-        )
-        if st.button("Process"):
-            with st.spinner("Processing"):
-                # get pdf text
-                raw_text = get_pdf_text(pdf_docs)
-
-                # get the text chunks
-                text_chunks = get_text_chunks(raw_text)
-
-                # create vector store
-                vectorstore = get_vectorstore(text_chunks)
-
-                # create conversation chain
-                st.session_state.conversation = get_conversation_chain(vectorstore)
+    assistant = PDFChatAssistant()
+    assistant.run()
 
 
 if __name__ == "__main__":
