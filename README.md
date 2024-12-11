@@ -1,98 +1,61 @@
-# MultiPDF - ChatBot: Empowering PDF Conversations
 
-## Overview
 
-**MultiPDF** is a Streamlit-based chatbot application designed to interact with multiple PDF documents. This powerful tool allows users to upload PDF files, extract their content, and ask questions about the information contained within those documents. By utilizing pre-trained language models, MultiPDF generates relevant and accurate responses based on the context extracted from the PDFs.
+## Multipdf to Chat
 
-## Features
+### 1. **Streamlit**:
+   - Used to create the web interface. Users upload PDF files, ask questions, and view the answers.
+   - Provides the chatbot interface: Users can type questions and receive answers from the chatbot.
 
-- **Multiple PDF Uploads**: Users can upload multiple PDF files for processing in one session.
-- **Text Extraction**: Automatically extracts the text content from PDF documents.
-- **Text Chunking**: Divides large blocks of text into manageable chunks for efficient processing.
-- **FAISS Vector Store**: Utilizes Facebook AI Similarity Search (FAISS) for fast and accurate similarity searches within the document chunks.
-- **Model Selection**: Choose between various pre-trained language models (e.g., GPT-based models) for generating responses.
-- **Interactive Chat Interface**: A user-friendly chat interface to ask questions and receive answers based on the PDF content.
+### 2. **PyPDF2**:
+   - Used to extract text from the uploaded PDF files. It reads text from the pages of the PDFs.
 
-## Requirements
+### 3. **Langchain**:
+   - **Text Splitter**: The **RecursiveCharacterTextSplitter** is used to split large text files into meaningful chunks. The text is divided into smaller, more manageable pieces.
+   - **GoogleGenerativeAIEmbeddings**: Creates vectors from the text chunks. These vectors are later used for similarity searches.
+   - **FAISS**: A library used for efficient and fast vector searches. FAISS stores the vectors of the uploaded text and performs similarity searches using these vectors.
+   - **ChatGoogleGenerativeAI**: Generates answers to questions using Google's **Gemini Pro** model.
+   - **load_qa_chain**: Loads the question-answer chain, which handles processing the text and generating meaningful answers for the user's questions.
 
-To run this application, make sure you have the following Python packages installed:
+### 4. **dotenv**:
+   - Ensures that sensitive information, such as the **Google API Key**, is securely loaded.
 
-- Python 3.7 or later
-- Streamlit
-- Transformers
-- PyPDF2
-- Langchain
-- Langchain Community
-- Sentence Transformers
-- Torch
-- NumPy
+## Steps of the Application:
 
-You can install all the required dependencies using the following command:
+### 1. **PDF Upload**:
+   - The user uploads the PDF files. These files are uploaded using `st.file_uploader`.
+   - The uploaded PDFs are processed using the `get_pdf_text` function to extract the full text.
 
-```bash
-pip install streamlit transformers PyPDF2 langchain langchain-community sentence-transformers torch numpy
+### 2. **Text Splitting**:
+   - The extracted text is split into chunks of 10,000 characters using the `get_text_chunks` function. This splitting process helps in efficiently processing large texts.
 
-```
-## How It Works
-This code is a Streamlit application that creates a chatbot based on PDF documents. Users can upload one or more PDF files and ask questions based on the extracted text. The app uses pre-loaded language models to generate appropriate responses. Here’s a summary of how it works:
+### 3. **Vector Storage**:
+   - Vectors are created from the text chunks using **GoogleGenerativeAIEmbeddings**.
+   - These vectors are stored in **FAISS**, which enables fast access for similarity searches.
 
-### 1. Libraries Used:
-- **streamlit**: For building the web interface.
-- **transformers**: For loading and working with language models.
-- **PyPDF2**: To extract text from PDFs.
-- **langchain**: For text processing and vector creation.
-- **sentence_transformers**: For creating text embeddings.
-- **FAISS**: For fast vector search.
-- **torch**: For deep learning operations.
+### 4. **Question-Answer Chain**:
+   - When the user asks a question, the application searches for answers based on the similarity between the question and the text in the PDFs.
+   - Similar texts are retrieved using **FAISS** and answers are generated with **ChatGoogleGenerativeAI**.
 
-### 2. `SentenceTransformerEmbedding` Class:
-This class converts text into embedding vectors using the SentenceTransformer model.
+### 5. **Streamlit Chat Interface**:
+   - The application provides an interactive chat interface between the user and the chatbot. As the user types questions, the chatbot provides appropriate responses.
 
-### 3. `PDFChatAssistant` Class:
-The main class that handles the app’s functionality:
-- **load_models**: Loads language models like `facebook/opt-350m` and `distilgpt2`.
-- **process_pdf**: Extracts text from PDF files using PyPDF2.
-- **get_pdf_text**: Uses multi-threading to process multiple PDFs in parallel.
-- **get_text_chunks**: Splits the extracted text into manageable chunks.
-- **get_vectorstore**: Converts text chunks into vectors and stores them in a FAISS vector store.
-- **generate_response**: Generates a response to the user’s question using the selected model.
+### 6. **API Key**:
+   - The Google API key is read from the `.env` file, allowing the use of Google's Gemini model.
 
-### 4. `run` Function:
-- Starts the user interface and allows PDF uploads and model selection.
-- Processes the uploaded PDFs, extracts text, and splits it into chunks.
-- Generates responses based on user questions and displays chat history.
+## User Flow:
 
-### 5. `main` Function:
-- Initializes the app by running the `PDFChatAssistant` class.
+1. The user uploads the PDF files.
+2. The application extracts text from the PDFs, splits it into chunks, and creates vectors.
+3. When the user asks a question, the chatbot performs a similarity search on the text.
+4. The chatbot uses the Google Gemini model to generate a response and displays the answer to the user.
 
-### 6. Streamlit Interface:
-- Users upload PDFs, ask questions, and view responses via the web interface.
-- The interface allows model selection, PDF uploads, and question submission.
-- The bot’s responses are displayed along with the chat history.
+## Technologies Used:
+- **Streamlit**: For the web interface.
+- **PyPDF2**: For extracting text from PDFs.
+- **Langchain**: For text processing, embedding creation, and vector storage.
+- **Google Generative AI**: Used to generate answers to questions.
+- **FAISS**: For vector searches.
+- **dotenv**: For environment variables, such as the Google API key.
 
-### Workflow Steps:
-1. **Model Loading**: The models are loaded initially.
-2. **PDF Processing**: Users upload PDFs and extract text.
-3. **Text Splitting**: The extracted text is split into chunks suitable for FAISS search.
-4. **Q&A**: Users ask questions, and the model generates answers.
-5. **Chat History**: Displays the conversation between the user and the bot.
-
-   
-# How to Use
-
-### Start the Application:
-Run the Streamlit app with the following command:
- ```bash
-streamlit run app.py
-```
-### Upload PDFs:
-Once the application is running, upload one or more PDF files via the file uploader in the sidebar.
-
-### Ask Questions:
-After the PDFs are processed, you can type a question in the text input box. The chatbot will use the context from the uploaded PDFs to generate an answer.
-
-### Select a Model:
-You can select a language model from the dropdown in the sidebar. The models are pre-loaded, and you can choose the one that best suits your needs.
-
-## License
-This project is licensed under the MIT License. See the LICENSE file for more details.
+## Conclusion:
+This application uses powerful AI and vectorization technologies to extract content from PDF files, break it into meaningful chunks, and then generate answers to user questions based on that content.
