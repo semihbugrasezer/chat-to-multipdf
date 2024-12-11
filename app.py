@@ -1,204 +1,152 @@
-import streamlit as st
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from PyPDF2 import PdfReader
-from langchain.text_splitter import CharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from sentence_transformers import SentenceTransformer
-from concurrent.futures import ThreadPoolExecutor
-import torch
-import numpy as np
 import os
-from htmltemplates import css, user_template, bot_template
+from PyPDF2 import PdfReader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+import streamlit as st
+import google.generativeai as genai
+from langchain.vectorstores import FAISS
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.chains.question_answering import load_qa_chain
+from langchain.prompts import PromptTemplate
+from dotenv import load_dotenv
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+load_dotenv()
+os.getenv("GOOGLE_API_KEY")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 
-class SentenceTransformerEmbedding:
-    def __init__(self, model_name):
-        self.model = SentenceTransformer(model_name)
+def get_pdf_text(pdf_docs):
+    text = ""
+    for pdf in pdf_docs:
+        pdf_reader = PdfReader(pdf)
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+    return text
 
-    def embed_documents(self, texts):
-        return self.model.encode(texts, show_progress_bar=True).tolist()
+
+# split text into chunks
 
 
-class PDFChatAssistant:
-    def __init__(self):
-        st.set_page_config(
-            page_title="MultiPDF - ChatBot: Empowering PDF Conversations",
-            page_icon="📄",
-            layout="wide",
-        )
+def get_text_chunks(text):
+    splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
+    chunks = splitter.split_text(text)
+    return chunks  # list of strings
 
-    def load_models(self):
-        """Load open-source models."""
-        models_to_try = [
-            {
-                "name": "facebook/opt-350m",
-                "model_class": AutoModelForCausalLM,
-                "tokenizer_class": AutoTokenizer,
-            },
-            {
-                "name": "distilgpt2",
-                "model_class": AutoModelForCausalLM,
-                "tokenizer_class": AutoTokenizer,
-            },
-        ]
 
-        loaded_models = []
-        for model_config in models_to_try:
-            try:
-                model_name = model_config["name"]
-                model = model_config["model_class"].from_pretrained(
-                    model_name,
-                    device_map="auto",
-                    torch_dtype=torch.float16,
-                    pad_token_id=50256,
-                )
-                tokenizer = model_config["tokenizer_class"].from_pretrained(model_name)
-                if tokenizer.pad_token is None:
-                    tokenizer.pad_token = tokenizer.eos_token
-                model.config.pad_token_id = tokenizer.pad_token_id
+# get embeddings for each chunk
 
-                loaded_models.append(
-                    {"name": model_name, "model": model, "tokenizer": tokenizer}
-                )
-                st.success(f"Successfully loaded {model_name}")
-            except Exception as e:
-                st.warning(f"Failed to load {model_name}: {e}")
 
-        return loaded_models
+def get_vector_store(chunks):
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001"
+    )  # type: ignore
+    vector_store = FAISS.from_texts(chunks, embedding=embeddings)
+    vector_store.save_local("faiss_index")
 
-    def process_pdf(self, pdf):
-        """Extract text from PDF."""
-        try:
-            pdf_reader = PdfReader(pdf)
-            text = ""
-            for page in pdf_reader.pages:
-                text += page.extract_text() or ""
-            return text
-        except Exception as e:
-            st.warning(f"Error processing PDF: {e}")
-            return ""
 
-    def get_pdf_text(self, pdf_docs):
-        """Extract text from multiple PDFs in parallel."""
-        with ThreadPoolExecutor() as executor:
-            results = list(executor.map(self.process_pdf, pdf_docs))
-        return "".join(results)
+def get_conversational_chain():
+    prompt_template = """
+    Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
+    provided context just say, "answer is not available in the context", don't provide the wrong answer\n\n
+    Context:\n {context}?\n
+    Question: \n{question}\n
 
-    def get_text_chunks(self, text, chunk_size=500, chunk_overlap=100):
-        """Split text into manageable chunks."""
-        text_splitter = CharacterTextSplitter(
-            separator="\n",
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            length_function=len,
-        )
-        return text_splitter.split_text(text)
+    Answer:
+    """
 
-    def get_vectorstore(self, text_chunks):
-        """Create a FAISS vector store from text chunks using a SentenceTransformer wrapper."""
-        embedding_model = SentenceTransformerEmbedding(
-            "all-MiniLM-L6-v2"
-        )  # Create an embedding model instance
+    model = ChatGoogleGenerativeAI(
+        model="gemini-pro",
+        client=genai,
+        temperature=0.3,
+    )
+    prompt = PromptTemplate(
+        template=prompt_template, input_variables=["context", "question"]
+    )
+    chain = load_qa_chain(llm=model, chain_type="stuff", prompt=prompt)
+    return chain
 
-        # Create the FAISS vector store
-        vectorstore = FAISS.from_texts(
-            text_chunks, embedding=embedding_model  # Pass the wrapper instance
-        )
-        return vectorstore
 
-    def generate_response(self, question, context, model, tokenizer):
-        """Generate response using the selected model."""
-        try:
-            input_text = f"Context: {context}\n\nQuestion: {question}\nAnswer:"
-            inputs = tokenizer(
-                input_text,
-                return_tensors="pt",
-                max_length=512,
-                truncation=True,
-                padding=True,
-            ).to(model.device)
+def clear_chat_history():
+    st.session_state.messages = [
+        {"role": "assistant", "content": "upload some pdfs and ask me a question"}
+    ]
 
-            outputs = model.generate(
-                inputs.input_ids,
-                attention_mask=inputs.attention_mask,
-                max_new_tokens=100,
-                num_return_sequences=1,
-                no_repeat_ngram_size=2,
-                do_sample=True,
-                top_k=50,
-                top_p=0.95,
-                temperature=0.7,
-            )
 
-            response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            return response.split("Answer:")[-1].strip()
-        except Exception as e:
-            st.error(f"Response generation error: {e}")
-            return "Sorry, I couldn't generate a response."
+def user_input(user_question):
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001"
+    )  # type: ignore
 
-    def run(self):
-        """Main Streamlit application."""
-        st.title("📄 MultiPDF - ChatBot: Empowering PDF Conversations")
-        st.markdown(css, unsafe_allow_html=True)
+    new_db = FAISS.load_local(
+        "faiss_index", embeddings, allow_dangerous_deserialization=True
+    )
+    docs = new_db.similarity_search(user_question)
 
-        # Add components to the sidebar
-        st.sidebar.title("Options")
-        st.sidebar.markdown("Select models and upload PDFs")
+    chain = get_conversational_chain()
 
-        models = self.load_models()
-        if not models:
-            st.error("No models could be loaded. Please check your setup.")
-            return
+    response = chain(
+        {"input_documents": docs, "question": user_question},
+        return_only_outputs=True,
+    )
 
-        pdf_docs = st.sidebar.file_uploader(
-            "Upload PDF files", type=["pdf"], accept_multiple_files=True
-        )
-
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
-
-        if pdf_docs:
-            with st.spinner("Processing PDFs..."):
-                raw_text = self.get_pdf_text(pdf_docs)
-                text_chunks = self.get_text_chunks(raw_text)
-                vectorstore = self.get_vectorstore(text_chunks)
-
-                if vectorstore:
-                    st.success(
-                        f"Processed {len(text_chunks)} text chunks from {len(pdf_docs)} PDFs."
-                    )
-
-        user_question = st.text_input("Ask a question about your documents:")
-
-        selected_model = st.sidebar.selectbox(
-            "Choose Model", [model["name"] for model in models]
-        )
-        current_model = next(
-            (m for m in models if m["name"] == selected_model), models[0]
-        )
-
-        if user_question:
-            response = self.generate_response(
-                user_question,
-                raw_text,
-                current_model["model"],
-                current_model["tokenizer"],
-            )
-            st.session_state.chat_history.append(("user", user_question))
-            st.session_state.chat_history.append(("bot", response))
-
-        for sender, message in st.session_state.chat_history:
-            if sender == "user":
-                st.markdown(user_template.format(message), unsafe_allow_html=True)
-            else:
-                st.markdown(bot_template.format(message), unsafe_allow_html=True)
+    print(response)
+    return response
 
 
 def main():
-    assistant = PDFChatAssistant()
-    assistant.run()
+    st.set_page_config(page_title="Gemini PDF Chatbot", page_icon="🤖")
+
+    # Sidebar for uploading PDF files
+    with st.sidebar:
+        st.title("Menu:")
+        pdf_docs = st.file_uploader(
+            "Upload your PDF Files and Click on the Submit & Process Button",
+            accept_multiple_files=True,
+        )
+        if st.button("Submit & Process"):
+            with st.spinner("Processing..."):
+                raw_text = get_pdf_text(pdf_docs)
+                text_chunks = get_text_chunks(raw_text)
+                get_vector_store(text_chunks)
+                st.success("Done")
+
+    # Main content area for displaying chat messages
+    st.title("Chat with PDF files using Gemini🤖")
+    st.write("Welcome to the chat!")
+    st.sidebar.button("Clear Chat History", on_click=clear_chat_history)
+
+    # Chat input
+    # Placeholder for chat messages
+
+    if "messages" not in st.session_state.keys():
+        st.session_state.messages = [
+            {"role": "assistant", "content": "upload some pdfs and ask me a question"}
+        ]
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
+    if prompt := st.chat_input():
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.write(prompt)
+
+    # Display chat messages and bot response
+    if st.session_state.messages[-1]["role"] != "assistant":
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                response = user_input(prompt)
+                placeholder = st.empty()
+                full_response = ""
+                for item in response["output_text"]:
+                    full_response += item
+                    placeholder.markdown(full_response)
+                placeholder.markdown(full_response)
+        if response is not None:
+            message = {"role": "assistant", "content": full_response}
+            st.session_state.messages.append(message)
 
 
 if __name__ == "__main__":
