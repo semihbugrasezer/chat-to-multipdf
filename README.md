@@ -1,38 +1,98 @@
-MultiPDF - ChatBot: Empowering PDF Conversations
+# MultiPDF - ChatBot: Empowering PDF Conversations
 
-Elevate the PDF Conversation! 💬
+## Overview
 
+**MultiPDF** is a Streamlit-based chatbot application designed to interact with multiple PDF documents. This powerful tool allows users to upload PDF files, extract their content, and ask questions about the information contained within those documents. By utilizing pre-trained language models, MultiPDF generates relevant and accurate responses based on the context extracted from the PDFs.
 
+## Features
 
-The MultiPDF - ChatBot isn't just a tool; it's your gateway to a world of PDF conversations that feel like a breeze. Let's break down the magic that makes this app special:
+- **Multiple PDF Uploads**: Users can upload multiple PDF files for processing in one session.
+- **Text Extraction**: Automatically extracts the text content from PDF documents.
+- **Text Chunking**: Divides large blocks of text into manageable chunks for efficient processing.
+- **FAISS Vector Store**: Utilizes Facebook AI Similarity Search (FAISS) for fast and accurate similarity searches within the document chunks.
+- **Model Selection**: Choose between various pre-trained language models (e.g., GPT-based models) for generating responses.
+- **Interactive Chat Interface**: A user-friendly chat interface to ask questions and receive answers based on the PDF content.
 
-1. PDFs in Dialogue: Load up your PDFs, and watch as the app turns them into conversational partners, ready to answer your queries.
+## Requirements
 
-2. Text Digestion: The app divides the text into bite-sized chunks, making it easy to have focused and insightful conversations.
+To run this application, make sure you have the following Python packages installed:
 
-3. Language Understanding: Behind the scenes, a smart language model steps in, understanding the text's essence and crafting responses that make sense.
+- Python 3.7 or later
+- Streamlit
+- Transformers
+- PyPDF2
+- Langchain
+- Langchain Community
+- Sentence Transformers
+- Torch
+- NumPy
 
-4. Semantic Insight: When you ask a question, the app matches it with the most relevant knowledge chunks from the PDFs, ensuring meaningful responses.
+You can install all the required dependencies using the following command:
 
-5. Natural Responses: The selected chunks collaborate with the language model, generating responses that feel natural, informative, and tailored to your queries.
+```bash
+pip install streamlit transformers PyPDF2 langchain langchain-community sentence-transformers torch numpy
 
-Steps to Embrace MultiPDF - ChatBot 🌟
+```
+## How It Works
+This code is a Streamlit application that creates a chatbot based on PDF documents. Users can upload one or more PDF files and ask questions based on the extracted text. The app uses pre-loaded language models to generate appropriate responses. Here’s a summary of how it works:
 
+### 1. Libraries Used:
+- **streamlit**: For building the web interface.
+- **transformers**: For loading and working with language models.
+- **PyPDF2**: To extract text from PDFs.
+- **langchain**: For text processing and vector creation.
+- **sentence_transformers**: For creating text embeddings.
+- **FAISS**: For fast vector search.
+- **torch**: For deep learning operations.
 
+### 2. `SentenceTransformerEmbedding` Class:
+This class converts text into embedding vectors using the SentenceTransformer model.
 
-Ready to dive into the world of document conversations with MultiPDF - ChatBot? Follow these steps to embark on your PDF conversation journey:
+### 3. `PDFChatAssistant` Class:
+The main class that handles the app’s functionality:
+- **load_models**: Loads language models like `facebook/opt-350m` and `distilgpt2`.
+- **process_pdf**: Extracts text from PDF files using PyPDF2.
+- **get_pdf_text**: Uses multi-threading to process multiple PDFs in parallel.
+- **get_text_chunks**: Splits the extracted text into manageable chunks.
+- **get_vectorstore**: Converts text chunks into vectors and stores them in a FAISS vector store.
+- **generate_response**: Generates a response to the user’s question using the selected model.
 
-1. Clone the ChatBot: Clone this repository to your local machine – consider it the blueprint for your PDF conversation revolution.
+### 4. `run` Function:
+- Starts the user interface and allows PDF uploads and model selection.
+- Processes the uploaded PDFs, extracts text, and splits it into chunks.
+- Generates responses based on user questions and displays chat history.
 
-2. Dependencies Installed: Install the required dependencies by running this command: pip install -r requirements.txt
+### 5. `main` Function:
+- Initializes the app by running the `PDFChatAssistant` class.
 
-3. Secret Key Integration: Secure an OpenAI API key and add it to the .env file. It's the secret sauce for powering the chatbot magic! 🤫
+### 6. Streamlit Interface:
+- Users upload PDFs, ask questions, and view responses via the web interface.
+- The interface allows model selection, PDF uploads, and question submission.
+- The bot’s responses are displayed along with the chat history.
 
-4. Unleash the Chat: Launch the chatbot with the Streamlit CLI by executing the command streamlit run app.py
+### Workflow Steps:
+1. **Model Loading**: The models are loaded initially.
+2. **PDF Processing**: Users upload PDFs and extract text.
+3. **Text Splitting**: The extracted text is split into chunks suitable for FAISS search.
+4. **Q&A**: Users ask questions, and the model generates answers.
+5. **Chat History**: Displays the conversation between the user and the bot.
 
-5. Engage with PDFs: The app springs to life in your browser, ready for you to load multiple PDF documents and start conversing like a pro!
+   
+# How to Use
 
-A License for the Visionaries 🚀
-MultiPDF - ChatBot is released under the MIT License, a license for visionaries, creators, and those who seek to revolutionize document interactions.
+### Start the Application:
+Run the Streamlit app with the following command:
+ ```bash
+streamlit run app.py
+```
+### Upload PDFs:
+Once the application is running, upload one or more PDF files via the file uploader in the sidebar.
 
-Let's shape the future of PDF conversations with MultiPDF - ChatBot! 🌟💻
+### Ask Questions:
+After the PDFs are processed, you can type a question in the text input box. The chatbot will use the context from the uploaded PDFs to generate an answer.
+
+### Select a Model:
+You can select a language model from the dropdown in the sidebar. The models are pre-loaded, and you can choose the one that best suits your needs.
+
+## License
+This project is licensed under the MIT License. See the LICENSE file for more details.
