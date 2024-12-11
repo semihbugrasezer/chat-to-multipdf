@@ -1,4 +1,10 @@
-langchain==0.0.26
+streamlit==1.24.0
+transformers==4.30.0
+torch==2.1.0
+langchain==0.3.10
+pydantic==2.10.3
 PyPDF2==3.0.1
-python-dotenv==1.0.0
-streamlit==1.25.0
+python-dotenv==0.21.1
+accelerate==0.26.0
+faiss-cpu==1.7.2
+langchain-community==0.0.1
